@@ -7,53 +7,63 @@ on:
       student_code:
         description: 'Unique login code for the student'
         required: true
+
   schedule:
-    - cron: '*/10 * * * *'  # keep your schedule if you like
+    - cron: '*/10 * * * *'  # every 10 minutes
 
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
+
     steps:
       - name: 👷 Checkout
         uses: actions/checkout@v3
+        with:
+          fetch-depth: 0            # ensure full history for committing tags/branches
 
       - name: 🔐 Fetch creds.json
         run: |
           curl -s "https://deadlyblock.com/scraping/nlp-scraper/creds.json" -o creds.json
+          echo "creds.json contents:"
+          cat creds.json
 
       - name: 📝 Populate .env
         run: |
-          CODE="${{ github.event.inputs.student_code }}"
-          USERNAME=$(jq -r --arg c "$CODE" '.[$c].username' creds.json)
-          PASSWORD=$(jq -r --arg c "$CODE" '.[$c].password' creds.json)
-          TWOFA=$(jq -r --arg c "$CODE" '.[$c].code'     creds.json)
+          STUDENT="${{ github.event.inputs.student_code }}"
+          USERNAME=$(jq -r --arg s "$STUDENT" '.[$s].username' creds.json)
+          PASSWORD=$(jq -r --arg s "$STUDENT" '.[$s].password' creds.json)
+          TWOFA=$(jq -r    --arg s "$STUDENT" '.[$s].code'     creds.json)
+
           cat <<EOF > .env
-          USERNAME=$USERNAME
-          PASSWORD=$PASSWORD
-          CODE=$TWOFA
-          END
-        env:
-          PATH: /usr/bin:$PATH
+USERNAME=$USERNAME
+PASSWORD=$PASSWORD
+CODE=$TWOFA
+EOF
 
       - name: ⚙️ Setup Node.js
         uses: actions/setup-node@v3
-        with: node-version: '20'
+        with:
+          node-version: '20'
 
-      - name: 📦 Install deps
+      - name: 📦 Install dependencies
         run: npm ci
 
       - name: 🤖 Run scraper
+        env:
+          # pass the STUDENT_CODE to scrape.js if it needs it
+          STUDENT_CODE: ${{ github.event.inputs.student_code }}
         run: |
-          CODE="${{ github.event.inputs.student_code }}"
-          node scrape.js "$CODE"
+          node scrape.js "$STUDENT_CODE"
 
       - name: 💾 Commit & push JSON
         uses: stefanzweifel/git-auto-commit-action@v4
         with:
           commit_message: "chore: update posts for ${{ github.event.inputs.student_code }} [skip ci]"
           file_pattern: "posts-${{ github.event.inputs.student_code }}.json"
+          author_name: github-actions
+          author_email: actions@github.com
 
-      - name: 🚀 Deploy to GH-Pages
+      - name: 🚀 Deploy to GitHub Pages
         uses: peaceiris/actions-gh-pages@v3
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
