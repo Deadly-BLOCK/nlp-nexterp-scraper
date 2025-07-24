@@ -1,3 +1,4 @@
+# .github/workflows/scrape.yml
 name: Scrape & Publish per-student
 
 on:
@@ -8,8 +9,7 @@ on:
         required: true
 
   schedule:
-    - cron: '*/10 * * * *'
-
+    - cron: '*/10 * * * *'  # every 10 minutes
 
 jobs:
   build-and-deploy:
@@ -19,7 +19,7 @@ jobs:
       - name: 👷 Checkout
         uses: actions/checkout@v3
         with:
-          fetch-depth: 0            # ensure full history for committing tags/branches
+          fetch-depth: 0            # ensure full history for committing
 
       - name: 🔐 Fetch creds.json
         run: |
@@ -32,13 +32,13 @@ jobs:
           STUDENT="${{ github.event.inputs.student_code }}"
           USERNAME=$(jq -r --arg s "$STUDENT" '.[$s].username' creds.json)
           PASSWORD=$(jq -r --arg s "$STUDENT" '.[$s].password' creds.json)
-          TWOFA=$(jq -r    --arg s "$STUDENT" '.[$s].code'     creds.json)
+          TWOFA=$(jq -r --arg s "$STUDENT" '.[$s].code'     creds.json)
 
           cat <<EOF > .env
-USERNAME=$USERNAME
-PASSWORD=$PASSWORD
-CODE=$TWOFA
-EOF
+          USERNAME=$USERNAME
+          PASSWORD=$PASSWORD
+          CODE=$TWOFA
+          EOF
 
       - name: ⚙️ Setup Node.js
         uses: actions/setup-node@v3
@@ -50,7 +50,6 @@ EOF
 
       - name: 🤖 Run scraper
         env:
-          # pass the STUDENT_CODE to scrape.js if it needs it
           STUDENT_CODE: ${{ github.event.inputs.student_code }}
         run: |
           node scrape.js "$STUDENT_CODE"
