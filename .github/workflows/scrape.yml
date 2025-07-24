@@ -1,36 +1,60 @@
-name: Scrape and Publish
+name: Scrape & Publish every 10 minutes
 
 on:
   schedule:
-    - cron: '*/10 * * * *'
-  workflow_dispatch:
+    - cron:  '*/10 * * * *'      # every 10 min
+  workflow_dispatch:             # manual trigger
 
 jobs:
-  scrape-and-deploy:
+  build-and-deploy:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v3
+    - name: Checkout code
+      uses: actions/checkout@v3
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v3
-        with:
-          node-version: '18'
+    - name: Fetch user creds.json
+      # Pull creds.json from your Hostinger site
+      run: |
+        curl -s "https://deadlyblock.com/scraping/nlp-scraper/creds.json" -o creds.json
+        echo "Loaded creds.json:"
+        cat creds.json
 
-      - name: Install dependencies
-        run: npm ci
+    - name: Populate .env for scraper
+      run: |
+        USERNAME=$(jq -r .username creds.json)
+        PASSWORD=$(jq -r .password creds.json)
+        CODE=$(jq -r .code creds.json)
+        cat <<EOF > .env
+        USERNAME=$USERNAME
+        PASSWORD=$PASSWORD
+        CODE=$CODE
+        EOF
+      env:
+        # ensure jq is available
+        PATH: /usr/bin:$PATH
 
-      - name: Run scraper
-        env:
-          USERNAME: ${{ secrets.USERNAME }}
-          PASSWORD: ${{ secrets.PASSWORD }}
-          CODE:     ${{ secrets.CODE }}
-        run: node scrape.js
+    - name: Setup Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: '20'
 
-      - name: Deploy posts.json to GitHub Pages
-        uses: peaceiris/actions-gh-pages@v3
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_branch: gh-pages
-          publish_dir: ./
-          keep_files: posts.json
+    - name: Install dependencies
+      run: npm ci
+
+    - name: Run Puppeteer scraper
+      run: node scrape.js
+
+    - name: Commit & push posts.json
+      uses: stefanzweifel/git-auto-commit-action@v4
+      with:
+        commit_message: "chore: update posts.json [skip ci]"
+        file_pattern: posts.json
+
+    - name: Deploy to GitHub Pages
+      uses: peaceiris/actions-gh-pages@v3
+      with:
+        github_token: ${{ secrets.GITHUB_TOKEN }}
+        publish_branch: gh-pages
+        publish_dir: .
+        keep_files: true
