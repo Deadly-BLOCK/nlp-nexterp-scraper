@@ -1,4 +1,3 @@
-# .github/workflows/scrape.yml
 name: Scrape & Publish per-student
 
 on:
@@ -9,7 +8,8 @@ on:
         required: true
 
   schedule:
-    - cron: '*/10 * * * *'  # every 10 minutes
+    - cron: '*/10 * * * *'
+
 
 jobs:
   build-and-deploy:
