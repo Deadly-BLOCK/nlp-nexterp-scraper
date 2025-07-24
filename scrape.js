@@ -3,6 +3,8 @@ require('dotenv').config();
 const puppeteer = require('puppeteer');
 const fs        = require('fs');
 
+console.log('Using credentials:', process.env.USERNAME, process.env.PASSWORD, process.env.CODE);
+
 // take the code argument:
 const STUDENT_CODE = process.argv[2];
 if (!STUDENT_CODE) {
