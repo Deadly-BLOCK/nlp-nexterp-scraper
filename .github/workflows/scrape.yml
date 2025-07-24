@@ -1,60 +1,62 @@
-name: Scrape & Publish every 10 minutes
+# .github/workflows/scrape.yml
+name: Scrape & Publish per-student
 
 on:
+  workflow_dispatch:
+    inputs:
+      student_code:
+        description: 'Unique login code for the student'
+        required: true
   schedule:
-    - cron:  '*/10 * * * *'      # every 10 min
-  workflow_dispatch:             # manual trigger
+    - cron: '*/10 * * * *'  # keep your schedule if you like
 
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
-
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v3
+      - name: 👷 Checkout
+        uses: actions/checkout@v3
 
-    - name: Fetch user creds.json
-      # Pull creds.json from your Hostinger site
-      run: |
-        curl -s "https://deadlyblock.com/scraping/nlp-scraper/creds.json" -o creds.json
-        echo "Loaded creds.json:"
-        cat creds.json
+      - name: 🔐 Fetch creds.json
+        run: |
+          curl -s "https://deadlyblock.com/scraping/nlp-scraper/creds.json" -o creds.json
 
-    - name: Populate .env for scraper
-      run: |
-        USERNAME=$(jq -r .username creds.json)
-        PASSWORD=$(jq -r .password creds.json)
-        CODE=$(jq -r .code creds.json)
-        cat <<EOF > .env
-        USERNAME=$USERNAME
-        PASSWORD=$PASSWORD
-        CODE=$CODE
-        EOF
-      env:
-        # ensure jq is available
-        PATH: /usr/bin:$PATH
+      - name: 📝 Populate .env
+        run: |
+          CODE="${{ github.event.inputs.student_code }}"
+          USERNAME=$(jq -r --arg c "$CODE" '.[$c].username' creds.json)
+          PASSWORD=$(jq -r --arg c "$CODE" '.[$c].password' creds.json)
+          TWOFA=$(jq -r --arg c "$CODE" '.[$c].code'     creds.json)
+          cat <<EOF > .env
+          USERNAME=$USERNAME
+          PASSWORD=$PASSWORD
+          CODE=$TWOFA
+          END
+        env:
+          PATH: /usr/bin:$PATH
 
-    - name: Setup Node.js
-      uses: actions/setup-node@v3
-      with:
-        node-version: '20'
+      - name: ⚙️ Setup Node.js
+        uses: actions/setup-node@v3
+        with: node-version: '20'
 
-    - name: Install dependencies
-      run: npm ci
+      - name: 📦 Install deps
+        run: npm ci
 
-    - name: Run Puppeteer scraper
-      run: node scrape.js
+      - name: 🤖 Run scraper
+        run: |
+          CODE="${{ github.event.inputs.student_code }}"
+          node scrape.js "$CODE"
 
-    - name: Commit & push posts.json
-      uses: stefanzweifel/git-auto-commit-action@v4
-      with:
-        commit_message: "chore: update posts.json [skip ci]"
-        file_pattern: posts.json
+      - name: 💾 Commit & push JSON
+        uses: stefanzweifel/git-auto-commit-action@v4
+        with:
+          commit_message: "chore: update posts for ${{ github.event.inputs.student_code }} [skip ci]"
+          file_pattern: "posts-${{ github.event.inputs.student_code }}.json"
 
-    - name: Deploy to GitHub Pages
-      uses: peaceiris/actions-gh-pages@v3
-      with:
-        github_token: ${{ secrets.GITHUB_TOKEN }}
-        publish_branch: gh-pages
-        publish_dir: .
-        keep_files: true
+      - name: 🚀 Deploy to GH-Pages
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_branch: gh-pages
+          publish_dir: .
+          keep_files: true
