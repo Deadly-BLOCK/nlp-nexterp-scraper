@@ -8,9 +8,6 @@ on:
         description: 'Unique login code for the student'
         required: true
 
-  schedule:
-    - cron: '*/10 * * * *'  # every 10 minutes
-
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
