@@ -92,12 +92,19 @@ async function autoScrollByCards(page, maxTime = 30000) {
     // FEED
     // --------------------
     const feedUrl =
-      'https://nlp.nexterp.in/nlp/nlp/v1/workspace/studentlms?urlgroup=Student%20Workspace#/dashboard/discussion';
+  'https://nlp.nexterp.in/nlp/nlp/v1/workspace/studentlms?urlgroup=Student%20Workspace#/dashboard/discussion';
 
-    await page.goto(feedUrl, { waitUntil: 'networkidle2' });
-    await page.waitForSelector('div.discussion-card.ng-scope', { timeout: 20000 });
+// Navigate to discussion feed (document-level load)
+await page.goto(feedUrl, { waitUntil: 'domcontentloaded' });
+console.log('➡️ page.goto completed:', page.url());
 
-    await autoScrollByCards(page, 30000);
+// Wait until Angular / server actually renders discussion cards
+await page.waitForSelector('div.discussion-card.ng-scope', { timeout: 20000 });
+console.log('➡️ Discussion feed rendered:', page.url());
+
+// Scroll to force-load all posts
+await autoScrollByCards(page, 30000);
+console.log('➡️ Finished auto-scrolling discussion feed');
 
     // --------------------
     // EXTRACT (FROM LONG-RUNNING VERSION)
