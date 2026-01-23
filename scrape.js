@@ -25,35 +25,34 @@ if (!USERNAME || !PASSWORD || !CODE) {
 console.log(`▶️ Scraping for student_code=${STUDENT_CODE}`);
 
 // --------------------
-// SCROLL HELPER (Modified for internal container)
+// SCROLL HELPER (Modified to trigger XHRs via internal container)
 // --------------------
 async function autoScrollByCards(page, maxTime = 30000) {
   await page.evaluate(async (maxTime) => {
     const sleep = ms => new Promise(r => setTimeout(r, ms));
     const start = Date.now();
-    
-    // Target the specific scrollable container for the cards
+    let prevCount = 0, stable = 0;
+
+    // Find the internal scrollable container
     const container = document.querySelector('md-content') || 
                       document.querySelector('.discussion-card')?.parentElement || 
                       window;
 
-    let prevHeight = (container === window) ? document.body.scrollHeight : container.scrollHeight;
-    let stable = 0;
-
     while (Date.now() - start < maxTime) {
-      if (container === window) {
-        window.scrollTo(0, document.body.scrollHeight);
-      } else {
+      const cards = document.querySelectorAll('div.discussion-card.ng-scope');
+      
+      if (cards.length) {
+        cards[cards.length - 1].scrollIntoView({ block: 'end' });
+      } else if (container !== window) {
         container.scrollTop = container.scrollHeight;
       }
-      
-      await sleep(2000); // Wait for XHR to trigger and content to load
 
-      let currHeight = (container === window) ? document.body.scrollHeight : container.scrollHeight;
-      if (currHeight === prevHeight) {
+      await sleep(1500); // Wait for XHR "get?categoryTypes=" to trigger
+
+      if (cards.length === prevCount) {
         if (++stable >= 3) break;
       } else {
-        prevHeight = currHeight;
+        prevCount = cards.length;
         stable = 0;
       }
     }
@@ -93,7 +92,7 @@ async function autoScrollByCards(page, maxTime = 30000) {
     });
 
     // --------------------
-    // LOGIN (Original Logic Restored)
+    // LOGIN
     // --------------------
     console.log('🔐 Logging in...');
     await page.goto('https://nlp.nexterp.in/nlp/nlp/login', {
@@ -116,7 +115,7 @@ async function autoScrollByCards(page, maxTime = 30000) {
     console.log('✅ Logged in');
 
     // --------------------
-    // FEED (Original Logic Restored)
+    // FEED
     // --------------------
     const feedUrl = 'https://nlp.nexterp.in/nlp/nlp/v1/workspace/studentlms?urlgroup=Student%20Workspace#/dashboard/discussion';
 
@@ -127,30 +126,28 @@ async function autoScrollByCards(page, maxTime = 30000) {
     await page.waitForSelector('div.discussion-card.ng-scope', { timeout: 20000 });
     console.log('➡️ Discussion feed rendered:', page.url());
 
-    // Scroll to force-load all posts (Triggers XHRs)
+    // Scroll to force-load all posts (Now just scrolls, no clicking)
     await autoScrollByCards(page, 45000);
     console.log('➡️ Finished auto-scrolling discussion feed');
 
     // --------------------
-    // WRITE FILE (Combined JSON)
+    // WRITE FILE (Combined JSON using original path format)
     // --------------------
-    console.log(`✅ Collected ${capturedResponses.length} JSON responses.`);
+    const outFile = path.resolve(`posts-${STUDENT_CODE}.json`);
     
-    const outFile = path.resolve(`captured-responses-${STUDENT_CODE}.json`);
-    
-    // Combine all captured objects into one array in the final file
-    const outputData = {
-      student_code: STUDENT_CODE,
-      timestamp: new Date().toISOString(),
-      responses: capturedResponses
+    // Combining the captured responses into one single JSON file
+    // First response copied is first in array, last response is last.
+    const finalData = {
+      capturedData: capturedResponses,
+      _updatedAt: new Date().toISOString()
     };
 
     fs.writeFileSync(
       outFile,
-      JSON.stringify(outputData, null, 2)
+      JSON.stringify(finalData, null, 2)
     );
 
-    console.log(`✅ Written ${outFile}`);
+    console.log(`✅ Written ${outFile} with ${capturedResponses.length} captured responses.`);
     process.exit(0);
 
   } catch (err) {
