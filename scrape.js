@@ -22,26 +22,40 @@ if (!USERNAME || !PASSWORD || !CODE) {
   process.exit(1);
 }
 
-console.log(`▶️ Capturing XHR responses for student_code=${STUDENT_CODE}`);
+console.log(`▶️ Scraping for student_code=${STUDENT_CODE}`);
 
 // --------------------
-// SCROLL HELPER
+// SCROLL HELPER (Modified for internal container)
 // --------------------
-// Updated to just scroll and wait for XHR to trigger, no longer looking for cards
-async function autoScroll(page, maxTime = 45000) {
-  console.log('📜 Scrolling to trigger network requests...');
+async function autoScrollByCards(page, maxTime = 30000) {
   await page.evaluate(async (maxTime) => {
     const sleep = ms => new Promise(r => setTimeout(r, ms));
     const start = Date.now();
-    let lastHeight = document.body.scrollHeight;
+    
+    // Target the specific scrollable container for the cards
+    const container = document.querySelector('md-content') || 
+                      document.querySelector('.discussion-card')?.parentElement || 
+                      window;
+
+    let prevHeight = (container === window) ? document.body.scrollHeight : container.scrollHeight;
+    let stable = 0;
 
     while (Date.now() - start < maxTime) {
-      window.scrollTo(0, document.body.scrollHeight);
-      await sleep(2000); // Wait for lazy loading to trigger XHR
+      if (container === window) {
+        window.scrollTo(0, document.body.scrollHeight);
+      } else {
+        container.scrollTop = container.scrollHeight;
+      }
       
-      let newHeight = document.body.scrollHeight;
-      if (newHeight === lastHeight) break; // Stop if no more content loads
-      lastHeight = newHeight;
+      await sleep(2000); // Wait for XHR to trigger and content to load
+
+      let currHeight = (container === window) ? document.body.scrollHeight : container.scrollHeight;
+      if (currHeight === prevHeight) {
+        if (++stable >= 3) break;
+      } else {
+        prevHeight = currHeight;
+        stable = 0;
+      }
     }
   }, maxTime);
 }
@@ -51,7 +65,7 @@ async function autoScroll(page, maxTime = 45000) {
 // --------------------
 (async () => {
   let browser;
-  const capturedResponses = []; // Array to store filtered XHR results
+  const capturedResponses = [];
 
   try {
     browser = await puppeteer.launch({
@@ -63,25 +77,23 @@ async function autoScroll(page, maxTime = 45000) {
     page.setDefaultNavigationTimeout(60000);
 
     // ---------------------------------------------------------
-    // NEW: NETWORK INTERCEPTION LOGIC
+    // XHR INTERCEPTION (Enabled before navigation)
     // ---------------------------------------------------------
     page.on('response', async (response) => {
       const url = response.url();
-      
-      // Filter by the specific endpoint requested
       if (url.includes('get?categoryTypes=')) {
         try {
           const json = await response.json();
-          capturedResponses.push(json); // Pushed in chronological order
-          console.log(`📥 Captured response: ...${url.substring(url.length - 40)}`);
+          capturedResponses.push(json);
+          console.log(`📥 Captured response: ...${url.split('?')[1]?.substring(0, 40)}`);
         } catch (e) {
-          // If response isn't valid JSON or already consumed
+          // Response body might be empty or not JSON
         }
       }
     });
 
     // --------------------
-    // LOGIN (Intact)
+    // LOGIN (Original Logic Restored)
     // --------------------
     console.log('🔐 Logging in...');
     await page.goto('https://nlp.nexterp.in/nlp/nlp/login', {
@@ -89,7 +101,7 @@ async function autoScroll(page, maxTime = 45000) {
     });
 
     await page.type('input[name="username"]', USERNAME);
-    await page.type('input[name="password"]|', PASSWORD); // Fixed a typo from original code if needed
+    await page.type('input[name="password"]', PASSWORD);
     await page.type('input[name="code"]', CODE);
 
     await Promise.all([
@@ -104,44 +116,47 @@ async function autoScroll(page, maxTime = 45000) {
     console.log('✅ Logged in');
 
     // --------------------
-    // FEED NAVIGATION
+    // FEED (Original Logic Restored)
     // --------------------
     const feedUrl = 'https://nlp.nexterp.in/nlp/nlp/v1/workspace/studentlms?urlgroup=Student%20Workspace#/dashboard/discussion';
-    
-    await page.goto(feedUrl, { waitUntil: 'networkidle2' });
-    console.log('➡️ Navigation to feed complete.');
+
+    await page.goto(feedUrl, { waitUntil: 'domcontentloaded' });
+    console.log('➡️ page.goto completed:', page.url());
+
+    // Wait until Angular / server actually renders discussion cards
+    await page.waitForSelector('div.discussion-card.ng-scope', { timeout: 20000 });
+    console.log('➡️ Discussion feed rendered:', page.url());
+
+    // Scroll to force-load all posts (Triggers XHRs)
+    await autoScrollByCards(page, 45000);
+    console.log('➡️ Finished auto-scrolling discussion feed');
 
     // --------------------
-    // SCROLLING (Simplified)
-    // --------------------
-    // We only scroll now. Clicking, opening, and closing are removed.
-    await autoScroll(page, 60000); 
-
-    // ---------------------------------------------------------
     // WRITE FILE (Combined JSON)
-    // ---------------------------------------------------------
-    const outFile = path.resolve(`captured-data-${STUDENT_CODE}.json`);
+    // --------------------
+    console.log(`✅ Collected ${capturedResponses.length} JSON responses.`);
     
-    // Compiling captured responses into one single object/file
-    const finalOutput = {
+    const outFile = path.resolve(`captured-responses-${STUDENT_CODE}.json`);
+    
+    // Combine all captured objects into one array in the final file
+    const outputData = {
       student_code: STUDENT_CODE,
       timestamp: new Date().toISOString(),
-      total_requests_captured: capturedResponses.length,
-      responses: capturedResponses // Ordered from first captured to last
+      responses: capturedResponses
     };
 
     fs.writeFileSync(
       outFile,
-      JSON.stringify(finalOutput, null, 2)
+      JSON.stringify(outputData, null, 2)
     );
 
-    console.log(`✅ Success! Combined ${capturedResponses.length} responses into ${outFile}`);
+    console.log(`✅ Written ${outFile}`);
+    process.exit(0);
 
   } catch (err) {
     console.error('❌ Scrape failed:', err.message || err);
     process.exit(1);
   } finally {
     if (browser) await browser.close().catch(() => {});
-    process.exit(0);
   }
 })();
