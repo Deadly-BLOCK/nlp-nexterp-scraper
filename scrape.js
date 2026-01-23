@@ -25,25 +25,35 @@ if (!USERNAME || !PASSWORD || !CODE) {
 console.log(`▶️ Scraping for student_code=${STUDENT_CODE}`);
 
 // --------------------
-// SCROLL HELPER (from long-running code)
+// SCROLL HELPER (Modified for internal container)
 // --------------------
 async function autoScrollByCards(page, maxTime = 30000) {
   await page.evaluate(async (maxTime) => {
     const sleep = ms => new Promise(r => setTimeout(r, ms));
-    let prev = 0, stable = 0;
     const start = Date.now();
+    
+    // Target the specific scrollable container for the cards
+    const container = document.querySelector('md-content') || 
+                      document.querySelector('.discussion-card')?.parentElement || 
+                      window;
+
+    let prevHeight = (container === window) ? document.body.scrollHeight : container.scrollHeight;
+    let stable = 0;
 
     while (Date.now() - start < maxTime) {
-      const cards = Array.from(document.querySelectorAll('div.discussion-card.ng-scope'));
-      if (cards.length) {
-        cards[cards.length - 1].scrollIntoView({ block: 'end' });
+      if (container === window) {
+        window.scrollTo(0, document.body.scrollHeight);
+      } else {
+        container.scrollTop = container.scrollHeight;
       }
-      await sleep(500);
+      
+      await sleep(2000); // Wait for XHR to trigger and content to load
 
-      if (cards.length === prev) {
+      let currHeight = (container === window) ? document.body.scrollHeight : container.scrollHeight;
+      if (currHeight === prevHeight) {
         if (++stable >= 3) break;
       } else {
-        prev = cards.length;
+        prevHeight = currHeight;
         stable = 0;
       }
     }
@@ -55,6 +65,7 @@ async function autoScrollByCards(page, maxTime = 30000) {
 // --------------------
 (async () => {
   let browser;
+  const capturedResponses = [];
 
   try {
     browser = await puppeteer.launch({
@@ -65,8 +76,24 @@ async function autoScrollByCards(page, maxTime = 30000) {
     const page = await browser.newPage();
     page.setDefaultNavigationTimeout(60000);
 
+    // ---------------------------------------------------------
+    // XHR INTERCEPTION (Enabled before navigation)
+    // ---------------------------------------------------------
+    page.on('response', async (response) => {
+      const url = response.url();
+      if (url.includes('get?categoryTypes=')) {
+        try {
+          const json = await response.json();
+          capturedResponses.push(json);
+          console.log(`📥 Captured response: ...${url.split('?')[1]?.substring(0, 40)}`);
+        } catch (e) {
+          // Response body might be empty or not JSON
+        }
+      }
+    });
+
     // --------------------
-    // LOGIN
+    // LOGIN (Original Logic Restored)
     // --------------------
     console.log('🔐 Logging in...');
     await page.goto('https://nlp.nexterp.in/nlp/nlp/login', {
@@ -89,112 +116,38 @@ async function autoScrollByCards(page, maxTime = 30000) {
     console.log('✅ Logged in');
 
     // --------------------
-    // FEED
+    // FEED (Original Logic Restored)
     // --------------------
-    const feedUrl =
-  'https://nlp.nexterp.in/nlp/nlp/v1/workspace/studentlms?urlgroup=Student%20Workspace#/dashboard/discussion';
+    const feedUrl = 'https://nlp.nexterp.in/nlp/nlp/v1/workspace/studentlms?urlgroup=Student%20Workspace#/dashboard/discussion';
 
-// Navigate to discussion feed (document-level load)
-await page.goto(feedUrl, { waitUntil: 'domcontentloaded' });
-console.log('➡️ page.goto completed:', page.url());
+    await page.goto(feedUrl, { waitUntil: 'domcontentloaded' });
+    console.log('➡️ page.goto completed:', page.url());
 
-// Wait until Angular / server actually renders discussion cards
-await page.waitForSelector('div.discussion-card.ng-scope', { timeout: 20000 });
-console.log('➡️ Discussion feed rendered:', page.url());
+    // Wait until Angular / server actually renders discussion cards
+    await page.waitForSelector('div.discussion-card.ng-scope', { timeout: 20000 });
+    console.log('➡️ Discussion feed rendered:', page.url());
 
-// Scroll to force-load all posts
-await autoScrollByCards(page, 30000);
-console.log('➡️ Finished auto-scrolling discussion feed');
+    // Scroll to force-load all posts (Triggers XHRs)
+    await autoScrollByCards(page, 45000);
+    console.log('➡️ Finished auto-scrolling discussion feed');
 
     // --------------------
-    // EXTRACT (FROM LONG-RUNNING VERSION)
+    // WRITE FILE (Combined JSON)
     // --------------------
-    const cards = await page.$$('div.discussion-card.ng-scope');
-    const posts = [];
+    console.log(`✅ Collected ${capturedResponses.length} JSON responses.`);
+    
+    const outFile = path.resolve(`captured-responses-${STUDENT_CODE}.json`);
+    
+    // Combine all captured objects into one array in the final file
+    const outputData = {
+      student_code: STUDENT_CODE,
+      timestamp: new Date().toISOString(),
+      responses: capturedResponses
+    };
 
-    for (const card of cards) {
-      // skip "resource"
-      const linkEl = await card.$('md-card.postLink p.postTitle');
-      if (linkEl) {
-        const txt = (
-          await card.$eval('md-card.postLink p.postTitle', el => el.textContent || '')
-        )
-          .trim()
-          .toLowerCase();
-        if (txt === 'resource') continue;
-      }
-
-      let teacher = '';
-      let datetime = '';
-
-      const hdr = await card.$('div.descTitleContent.layout-align-center-start');
-      if (hdr) {
-        try {
-          teacher = await hdr.$eval('h3', el => el.textContent.trim());
-        } catch {}
-        try {
-          datetime = await hdr.$eval('span.direction-normal', el => el.textContent.trim());
-        } catch {}
-      }
-
-      if (!teacher || !datetime) {
-        try {
-          const items = await card.$$eval('ul.feed-details li', els =>
-            els.map(e => e.textContent.trim())
-          );
-          teacher = items[0]?.replace(/^By\s*/i, '').trim() || teacher;
-          datetime = items[1] || datetime;
-        } catch {}
-      }
-
-      let content = '';
-      const foot = await card.$('div.disc-footer h3');
-      if (foot) {
-        content = await card.$eval('div.disc-footer h3', el => el.innerHTML.trim());
-      } else {
-        const desc = await card.$('div.descTitleContent p');
-        content = desc
-          ? (await desc.evaluate(el => el.textContent)).trim()
-          : '';
-      }
-
-      const attachments = [];
-      const atEls = await card.$$('div.post-details-card.cursor');
-
-      for (const el of atEls) {
-        const vid = await el.$('video source');
-        if (vid) {
-          attachments.push(await el.$eval('source', s => s.src));
-        } else {
-          try {
-            await el.click();
-            await page.waitForSelector('div.galleryorginal', { timeout: 6000 });
-            const src = await page.evaluate(() => {
-              const g = document.querySelector('div.galleryorginal .gallery-img');
-              const e = g?.querySelector('embed, img, video source, audio');
-              return e?.src || null;
-            });
-            if (src) attachments.push(src);
-          } catch {}
-          await page.keyboard.press('Escape').catch(() => {});
-          await page
-            .waitForSelector('div.galleryorginal', { hidden: true, timeout: 3000 })
-            .catch(() => {});
-        }
-      }
-
-      posts.push({ teacher, datetime, content, attachments });
-    }
-
-    console.log(`✅ Extracted ${posts.length} posts`);
-
-    // --------------------
-    // WRITE FILE
-    // --------------------
-    const outFile = path.resolve(`posts-${STUDENT_CODE}.json`);
     fs.writeFileSync(
       outFile,
-      JSON.stringify({ posts, _updatedAt: new Date().toISOString() }, null, 2)
+      JSON.stringify(outputData, null, 2)
     );
 
     console.log(`✅ Written ${outFile}`);
@@ -207,4 +160,3 @@ console.log('➡️ Finished auto-scrolling discussion feed');
     if (browser) await browser.close().catch(() => {});
   }
 })();
-
