@@ -25,15 +25,16 @@ if (!USERNAME || !PASSWORD || !CODE) {
 console.log(`▶️ Scraping for student_code=${STUDENT_CODE}`);
 
 // --------------------
-// SCROLL HELPER (Modified to trigger XHRs via internal container)
+// SCROLL HELPER (Enhanced for reliability)
 // --------------------
-async function autoScrollByCards(page, maxTime = 30000) {
+async function autoScrollByCards(page, maxTime = 120000) {
   await page.evaluate(async (maxTime) => {
     const sleep = ms => new Promise(r => setTimeout(r, ms));
     const start = Date.now();
-    let prevCount = 0, stable = 0;
+    let prevCount = 0;
+    let stable = 0;
 
-    // Find the internal scrollable container
+    // Target the specific scrollable container
     const container = document.querySelector('md-content') || 
                       document.querySelector('.discussion-card')?.parentElement || 
                       window;
@@ -47,10 +48,13 @@ async function autoScrollByCards(page, maxTime = 30000) {
         container.scrollTop = container.scrollHeight;
       }
 
-      await sleep(1500); // Wait for XHR "get?categoryTypes=" to trigger
+      // 3 second wait: gives the server plenty of time to respond to XHR
+      await sleep(3000); 
 
-      if (cards.length === prevCount) {
-        if (++stable >= 3) break;
+      if (cards.length === prevCount && cards.length > 0) {
+        // We wait for 6 stable checks (approx 18 seconds of no change) 
+        // before deciding we are truly at the end.
+        if (++stable >= 6) break;
       } else {
         prevCount = cards.length;
         stable = 0;
@@ -73,7 +77,7 @@ async function autoScrollByCards(page, maxTime = 30000) {
     });
 
     const page = await browser.newPage();
-    page.setDefaultNavigationTimeout(60000);
+    page.setDefaultNavigationTimeout(90000);
 
     // ---------------------------------------------------------
     // XHR INTERCEPTION (Enabled before navigation)
@@ -84,7 +88,7 @@ async function autoScrollByCards(page, maxTime = 30000) {
         try {
           const json = await response.json();
           capturedResponses.push(json);
-          console.log(`📥 Captured response: ...${url.split('?')[1]?.substring(0, 40)}`);
+          console.log(`📥 Captured response #${capturedResponses.length}: ...${url.split('?')[1]?.substring(0, 40)}`);
         } catch (e) {
           // Response body might be empty or not JSON
         }
@@ -122,21 +126,23 @@ async function autoScrollByCards(page, maxTime = 30000) {
     await page.goto(feedUrl, { waitUntil: 'domcontentloaded' });
     console.log('➡️ page.goto completed:', page.url());
 
-    // Wait until Angular / server actually renders discussion cards
-    await page.waitForSelector('div.discussion-card.ng-scope', { timeout: 20000 });
-    console.log('➡️ Discussion feed rendered:', page.url());
+    // Wait until Angular renders the first batch
+    await page.waitForSelector('div.discussion-card.ng-scope', { timeout: 30000 });
+    console.log('➡️ Discussion feed rendered');
 
-    // Scroll to force-load all posts (Now just scrolls, no clicking)
-    await autoScrollByCards(page, 45000);
-    console.log('➡️ Finished auto-scrolling discussion feed');
+    // Scroll to trigger all XHR requests
+    // Increased maxTime to 2 minutes for very long feeds
+    await autoScrollByCards(page, 120000);
+    
+    // GRACE PERIOD: Wait 5 seconds after scrolling ends to catch final lazy-loaded data
+    console.log('➡️ Scroll finished. Waiting 5s for final data packets...');
+    await new Promise(r => setTimeout(r, 5000));
 
     // --------------------
-    // WRITE FILE (Combined JSON using original path format)
+    // WRITE FILE
     // --------------------
     const outFile = path.resolve(`posts-${STUDENT_CODE}.json`);
     
-    // Combining the captured responses into one single JSON file
-    // First response copied is first in array, last response is last.
     const finalData = {
       capturedData: capturedResponses,
       _updatedAt: new Date().toISOString()
@@ -147,7 +153,7 @@ async function autoScrollByCards(page, maxTime = 30000) {
       JSON.stringify(finalData, null, 2)
     );
 
-    console.log(`✅ Written ${outFile} with ${capturedResponses.length} captured responses.`);
+    console.log(`✅ Success! Written ${outFile} with ${capturedResponses.length} total responses.`);
     process.exit(0);
 
   } catch (err) {
