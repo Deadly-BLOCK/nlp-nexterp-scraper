@@ -20,7 +20,7 @@ jobs:
 
       - name: 🔐 Fetch creds.json
         run: |
-          curl -s "https://deadlyblock.com/nlp/creds.json" -o creds.json
+          curl -s "https://rijash.com/nlp/creds.json" -o creds.json
           echo "creds.json contents:"
           cat creds.json
 
