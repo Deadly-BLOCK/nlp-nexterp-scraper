@@ -141,7 +141,7 @@ async function autoScrollByCards(page, maxTime = 120000) {
     // --------------------
     // WRITE FILE
     // --------------------
-    const outFile = path.resolve(`posts-${STUDENT_CODE}.json`);
+    const outFile = path.resolve(`posts/posts-${STUDENT_CODE}.json`);
     
     const finalData = {
       capturedData: capturedResponses,
