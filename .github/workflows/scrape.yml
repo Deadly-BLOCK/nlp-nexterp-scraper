@@ -19,8 +19,11 @@ jobs:
           fetch-depth: 0            # ensure full history for committing
 
       - name: 🔐 Fetch creds.json
+        env:
+         CREDS_USR: ${{ secrets.CREDS_USR }}
+         CREDS_PSSWD: ${{ secrets.CREDS_PSSWD }}
         run: |
-          curl -s -u bot:c29pbHN1cHBseWNhdHRsZXdlaWdodGlwbWludXRlbm9waHlzaWNhbGtub3dsZWRnZW0= https://rijash.com/nlp/creds.json -o creds.json
+          curl -s -u "$CREDS_USR:$CREDS_PSSWD" https://rijash.com/nlp/creds.json -o creds.json
           echo "creds.json fetched"
           
       - name: 📝 Populate .env
