@@ -18,20 +18,19 @@ jobs:
         with:
           fetch-depth: 0            # ensure full history for committing
 
-      - name: 🔐 Fetch creds.json
+      - name: 🔐 Fetch creds.json in memory
         env:
          CREDS_USR: ${{ secrets.CREDS_USR }}
          CREDS_PSSWD: ${{ secrets.CREDS_PSSWD }}
         run: |
-          curl -s -u "$CREDS_USR:$CREDS_PSSWD" https://rijash.com/nlp/creds.json -o creds.json
-          echo "creds.json fetched"
-          
-      - name: 📝 Populate .env
-        run: |
+          CREDS_JSON=$(curl -s -u "$CREDS_USR:$CREDS_PSSWD" https://rijash.com/nlp/creds.json)
+          echo "creds.json fetched in memory"
+
+          # Populate environment variables for downstream step
           STUDENT="${{ github.event.inputs.student_code }}"
-          USERNAME=$(jq -r --arg s "$STUDENT" '.[$s].username' creds.json)
-          PASSWORD=$(jq -r --arg s "$STUDENT" '.[$s].password' creds.json)
-          TWOFA=$(jq -r --arg s "$STUDENT" '.[$s].code'     creds.json)
+          USERNAME=$(echo "$CREDS_JSON" | jq -r --arg s "$STUDENT" '.[$s].username')
+          PASSWORD=$(echo "$CREDS_JSON" | jq -r --arg s "$STUDENT" '.[$s].password')
+          TWOFA=$(echo "$CREDS_JSON" | jq -r --arg s "$STUDENT" '.[$s].code')
 
           cat <<EOF > .env
           USERNAME=$USERNAME
