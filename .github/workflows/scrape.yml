@@ -10,33 +10,56 @@ on:
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
+
     steps:
-      - name: 🚀 Fast Execution
+      - name: 👷 Checkout
+        uses: actions/checkout@v4 # Upgraded to v4 for speed
+
+      - name: ⚙️ Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm' # This built-in cache saves ~20-30s on 'npm ci'
+
+      - name: 📦 Install dependencies
+        # This only installs if the cache is missing
+        run: npm ci
+
+      - name: 🔐 Fetch credentials
         env:
           CREDS_USR: ${{ secrets.CREDS_USR }}
           CREDS_PSSWD: ${{ secrets.CREDS_PSSWD }}
-          STUDENT_CODE: ${{ github.event.inputs.student_code }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # 1. Checkout (Manual git commands are faster than the checkout action)
-          git clone --depth 1 https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git .
+          # Use curl directly to populate .env to avoid extra script steps
+          curl -s -u "$CREDS_USR:$CREDS_PSSWD" https://rijash.com/nlp/creds.json > raw_creds.json
           
-          # 2. Setup Env & Dependencies (Using pre-installed node/npm)
-          # We use --no-save to keep the disk light
-          npm install puppeteer dotenv --no-save --quiet
-          
-          # 3. Fetch Creds & Create .env (Single Pipe)
-          curl -s -u "$CREDS_USR:$CREDS_PSSWD" https://rijash.com/nlp/creds.json > raw.json
-          echo "USERNAME=$(jq -r --arg s "$STUDENT_CODE" '.[$s].username' raw.json)" > .env
-          echo "PASSWORD=$(jq -r --arg s "$STUDENT_CODE" '.[$s].password' raw.json)" >> .env
-          echo "CODE=$(jq -r --arg s "$STUDENT_CODE" '.[$s].code' raw.json)" >> .env
-          
-          # 4. Run Scraper
-          node scrape.js "$STUDENT_CODE"
-          
-          # 5. Push changes manually (Much faster than the auto-commit action)
-          git config user.name "github-actions"
-          git config user.email "actions@github.com"
-          git add posts/
-          git commit -m "chore: update $STUDENT_CODE" || exit 0
-          git push origin main
+          STUDENT="${{ github.event.inputs.student_code }}"
+          USERNAME=$(jq -r --arg s "$STUDENT" '.[$s].username' raw_creds.json)
+          PASSWORD=$(jq -r --arg s "$STUDENT" '.[$s].password' raw_creds.json)
+          TWOFA=$(jq -r --arg s "$STUDENT" '.[$s].code' raw_creds.json)
+
+          echo "USERNAME=$USERNAME" > .env
+          echo "PASSWORD=$PASSWORD" >> .env
+          echo "CODE=$TWOFA" >> .env
+          rm raw_creds.json
+
+      - name: 🤖 Run scraper
+        env:
+          STUDENT_CODE: ${{ github.event.inputs.student_code }}
+        run: node scrape.js "$STUDENT_CODE"
+
+      - name: 💾 Commit & push JSON
+        uses: stefanzweifel/git-auto-commit-action@v5 # Upgraded to v5
+        with:
+          commit_message: "chore: update posts for ${{ github.event.inputs.student_code }} [skip ci]"
+          file_pattern: "posts/posts-${{ github.event.inputs.student_code }}.json"
+          author_name: github-actions
+          author_email: actions@github.com
+
+      - name: 🚀 Deploy
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_branch: gh-pages
+          publish_dir: .
+          keep_files: true
