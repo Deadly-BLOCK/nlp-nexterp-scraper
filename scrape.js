@@ -1,73 +1,69 @@
 require('dotenv').config();
-const puppeteer = require('puppeteer');
+const axios = require('axios');
+const { wrapper } = require('axios-cookiejar-support');
+const { CookieJar } = require('tough-cookie');
+const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
-const { execSync } = require('child_process');
 
 const STUDENT_CODE = process.argv[2];
 const { USERNAME, PASSWORD, CODE } = process.env;
 
-(async () => {
-  let browser;
-  try {
-    browser = await puppeteer.launch({
-      headless: "new",
-      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu']
-    });
+// Initialize Cookie Jar to handle sessions automatically
+const jar = new CookieJar();
+const client = wrapper(axios.create({ 
+    jar, 
+    withCredentials: true,
+    headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36',
+        'Accept': 'application/json, text/plain, */*'
+    }
+}));
 
-    const page = await browser.newPage();
-    await page.setRequestInterception(true);
+async function run() {
+    try {
+        console.log(`🚀 Starting browserless scrape for: ${STUDENT_CODE}`);
 
-    // Listen for the specific request and execute CURL immediately
-    const curlPromise = new Promise((resolve) => {
-      page.on('request', (request) => {
-        const url = request.url();
-        if (url.includes('get?categoryTypes=')) {
-          let curl = `curl '${url.replace(/size=\d+/, 'size=10000')}'`;
-          const headers = request.headers();
-          for (const [key, val] of Object.entries(headers)) {
-            curl += ` -H '${key}: ${val.replace(/'/g, "'\\''")}'`;
-          }
-          resolve(curl);
-        }
-        request.continue();
-      });
-    });
+        // 1. Hash the password to MD5 (matching your curl data)
+        const hashedPassword = crypto.createHash('md5').update(PASSWORD).digest('hex');
 
-    // Login (Fastest possible navigation)
-    await page.goto('https://nlp.nexterp.in/nlp/nlp/login', { waitUntil: 'networkidle2' });
-    await page.type('input[name="username"]', USERNAME);
-    await page.type('input[name="password"]', PASSWORD);
-    await page.type('input[name="code"]', CODE);
-    
-    await Promise.all([
-      page.click('button[name="btnSignIn"]'),
-      page.waitForNavigation({ waitUntil: 'networkidle2' })
-    ]);
+        // 2. Perform Login (mimicking your --data-raw)
+        const loginParams = new URLSearchParams({
+            platform: 'web',
+            lang: 'en',
+            username: USERNAME,
+            password: hashedPassword,
+            code: CODE,
+            ucid: '63e019b2-bfe3-4abb-a335-613088fcd3cb' // From your curl
+        });
 
-    // Trigger the feed page
-    const feedUrl = 'https://nlp.nexterp.in/nlp/nlp/v1/workspace/studentlms?urlgroup=Student%20Workspace#/dashboard/discussion';
-    await page.goto(feedUrl, { waitUntil: 'domcontentloaded' });
+        console.log('🔐 Logging in...');
+        await client.post('https://nlp.nexterp.in/nlp/nlp/login', loginParams.toString(), {
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
+        });
 
-    // As soon as the CURL command is built from the intercepted request, run it
-    const command = await curlPromise;
-    console.log('🚀 Executing CURL...');
-    
-    const response = execSync(command, { maxBuffer: 1024 * 1024 * 50 });
-    
-    const outFile = path.resolve(`posts/posts-${STUDENT_CODE}.json`);
-    fs.writeFileSync(outFile, JSON.stringify({
-      capturedData: [JSON.parse(response.toString())],
-      _updatedAt: new Date().toISOString()
-    }, null, 2));
+        // 3. Fetch the data with size=10000
+        // Use the exact base URL you captured from the XHR previously
+        const targetUrl = `https://nlp.nexterp.in/nlp/nlp/v1/get?categoryTypes=...&size=10000`; 
+        
+        console.log('📥 Fetching massive JSON payload...');
+        const response = await client.get(targetUrl);
 
-    console.log(`✅ Done!`);
-    process.exit(0);
+        // 4. Save the output
+        const outFile = path.resolve(`posts/posts-${STUDENT_CODE}.json`);
+        const finalData = {
+            capturedData: [response.data],
+            _updatedAt: new Date().toISOString(),
+            _method: "Browserless/Axios"
+        };
 
-  } catch (err) {
-    console.error('❌ Error:', err.message);
-    process.exit(1);
-  } finally {
-    if (browser) await browser.close();
-  }
-})();
+        fs.writeFileSync(outFile, JSON.stringify(finalData, null, 2));
+        console.log(`✅ Success! Data saved to ${outFile}`);
+
+    } catch (err) {
+        console.error('❌ Error:', err.response?.status || err.message);
+        process.exit(1);
+    }
+}
+
+run();
