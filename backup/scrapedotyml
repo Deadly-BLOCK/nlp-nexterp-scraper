@@ -1,0 +1,69 @@
+# .github/workflows/scrape.yml
+name: Scrape & Publish per-student
+
+on:
+  workflow_dispatch:
+    inputs:
+      student_code:
+        description: 'Unique login code for the student'
+        required: true
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 👷 Checkout
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0            # ensure full history for committing
+
+      - name: 🔐 Fetch creds.json in memory
+        env:
+         CREDS_USR: ${{ secrets.CREDS_USR }}
+         CREDS_PSSWD: ${{ secrets.CREDS_PSSWD }}
+        run: |
+          CREDS_JSON=$(curl -s -u "$CREDS_USR:$CREDS_PSSWD" https://rijash.com/nlp/creds.json)
+          echo "creds.json fetched in memory"
+
+          # Populate environment variables for downstream step
+          STUDENT="${{ github.event.inputs.student_code }}"
+          USERNAME=$(echo "$CREDS_JSON" | jq -r --arg s "$STUDENT" '.[$s].username')
+          PASSWORD=$(echo "$CREDS_JSON" | jq -r --arg s "$STUDENT" '.[$s].password')
+          TWOFA=$(echo "$CREDS_JSON" | jq -r --arg s "$STUDENT" '.[$s].code')
+
+          cat <<EOF > .env
+          USERNAME=$USERNAME
+          PASSWORD=$PASSWORD
+          CODE=$TWOFA
+          EOF
+
+      - name: ⚙️ Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '20'
+
+      - name: 📦 Install dependencies
+        run: npm ci
+
+      - name: 🤖 Run scraper
+        env:
+          STUDENT_CODE: ${{ github.event.inputs.student_code }}
+        run: |
+          node scrape.js "$STUDENT_CODE"
+
+      - name: 💾 Commit & push JSON
+        uses: stefanzweifel/git-auto-commit-action@v4
+        with:
+          commit_message: "chore: update posts for ${{ github.event.inputs.student_code }} [skip ci]"
+          file_pattern: "posts-${{ github.event.inputs.student_code }}.json"
+          author_name: github-actions
+          author_email: actions@github.com
+
+      - name: 🚀 Deploy to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_branch: gh-pages
+          publish_dir: .
+          keep_files: true
