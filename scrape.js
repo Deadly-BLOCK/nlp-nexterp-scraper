@@ -1,78 +1,73 @@
 require('dotenv').config();
-const axios = require('axios');
-const crypto = require('crypto');
+const puppeteer = require('puppeteer');
 const fs = require('fs');
 const path = require('path');
+const { execSync } = require('child_process');
 
 const STUDENT_CODE = process.argv[2];
 const { USERNAME, PASSWORD, CODE } = process.env;
 
-async function run() {
-    try {
-        console.log(`🚀 Browserless Scrape: ${STUDENT_CODE}`);
-        const hashedPassword = crypto.createHash('md5').update(PASSWORD).digest('hex');
+(async () => {
+  let browser;
+  try {
+    browser = await puppeteer.launch({
+      headless: "new",
+      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu']
+    });
 
-        // 1. LOGIN
-        const loginParams = new URLSearchParams({
-            platform: 'web',
-            lang: 'en',
-            username: USERNAME,
-            password: hashedPassword,
-            code: CODE
-        });
+    const page = await browser.newPage();
+    await page.setRequestInterception(true);
 
-        console.log('🔐 Authenticating...');
-        const loginRes = await axios.post('https://nlp.nexterp.in/nlp/nlp/login', loginParams.toString(), {
-            headers: { 
-                'Content-Type': 'application/x-www-form-urlencoded',
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-            }
-        });
-
-        // 2. EXTRACT TOKEN
-        // Most NextERP systems return the token in a cookie or a 'token' field in JSON
-        // We'll check the 'set-cookie' header for authToken
-        const cookies = loginRes.headers['set-cookie'] || [];
-        const authCookie = cookies.find(c => c.includes('authToken='));
-        const token = authCookie 
-            ? authCookie.split('authToken=')[1].split(';')[0] 
-            : null;
-
-        if (!token) {
-            console.error('❌ Could not find authToken in login response.');
-            // Debug: console.log(loginRes.headers);
-            process.exit(1);
+    // Listen for the specific request and execute CURL immediately
+    const curlPromise = new Promise((resolve) => {
+      page.on('request', (request) => {
+        const url = request.url();
+        if (url.includes('get?categoryTypes=')) {
+          let curl = `curl '${url.replace(/size=\d+/, 'size=10000')}'`;
+          const headers = request.headers();
+          for (const [key, val] of Object.entries(headers)) {
+            curl += ` -H '${key}: ${val.replace(/'/g, "'\\''")}'`;
+          }
+          resolve(curl);
         }
+        request.continue();
+      });
+    });
 
-        // 3. FETCH DATA (Using your exact URL with size=10000)
-        console.log('📥 Fetching feeds...');
-        
-        // We use your exact copied URL but swap size=10 for size=10000
-        const feedUrl = `https://nlp.nexterp.in/NextPostV2/nextpost/data/discussionBoard/posts/get?categoryTypes=Activity&categoryTypes=Announcement&categoryTypes=Assessment&categoryTypes=Homework&categoryTypes=LiveLecture&categoryTypes=Resource&cpids=907668&cpids=914359&cpids=914367&cpids=914380&cpids=914385&cpids=914266&cpids=914204&cpids=914198&cpids=914075&cpids=914386&defaultLocale=en&lasid=20893&lbid=11522&lstduid=&luid=9883276&lupid=18062342&page=1&ptype=STUDENT&sectionLevel=true&size=10000&supportDynamicFeedCategory=true`;
+    // Login (Fastest possible navigation)
+    await page.goto('https://nlp.nexterp.in/nlp/nlp/login', { waitUntil: 'networkidle2' });
+    await page.type('input[name="username"]', USERNAME);
+    await page.type('input[name="password"]', PASSWORD);
+    await page.type('input[name="code"]', CODE);
+    
+    await Promise.all([
+      page.click('button[name="btnSignIn"]'),
+      page.waitForNavigation({ waitUntil: 'networkidle2' })
+    ]);
 
-        const dataRes = await axios.get(feedUrl, {
-            headers: {
-                'Authorization': `Bearer ${token}`,
-                'Accept': 'application/json',
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-            }
-        });
+    // Trigger the feed page
+    const feedUrl = 'https://nlp.nexterp.in/nlp/nlp/v1/workspace/studentlms?urlgroup=Student%20Workspace#/dashboard/discussion';
+    await page.goto(feedUrl, { waitUntil: 'domcontentloaded' });
 
-        // 4. SAVE
-        const outFile = path.resolve(`posts/posts-${STUDENT_CODE}.json`);
-        if (!fs.existsSync('posts')) fs.mkdirSync('posts');
+    // As soon as the CURL command is built from the intercepted request, run it
+    const command = await curlPromise;
+    console.log('🚀 Executing CURL...');
+    
+    const response = execSync(command, { maxBuffer: 1024 * 1024 * 50 });
+    
+    const outFile = path.resolve(`posts/posts-${STUDENT_CODE}.json`);
+    fs.writeFileSync(outFile, JSON.stringify({
+      capturedData: [JSON.parse(response.toString())],
+      _updatedAt: new Date().toISOString()
+    }, null, 2));
 
-        fs.writeFileSync(outFile, JSON.stringify({
-            capturedData: [dataRes.data],
-            _updatedAt: new Date().toISOString()
-        }, null, 2));
+    console.log(`✅ Done!`);
+    process.exit(0);
 
-        console.log(`✅ Success! Fetched ${dataRes.data?.length || 'all'} items.`);
-
-    } catch (err) {
-        console.error(`❌ Error: ${err.response?.status || err.message}`);
-        process.exit(1);
-    }
-}
-
-run();
+  } catch (err) {
+    console.error('❌ Error:', err.message);
+    process.exit(1);
+  } finally {
+    if (browser) await browser.close();
+  }
+})();
