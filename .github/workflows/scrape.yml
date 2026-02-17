@@ -10,56 +10,34 @@ on:
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
+    # Use a pre-built container that HAS chrome and node already
+    container: mcr.microsoft.com/playwright:v1.41.0-jammy 
 
     steps:
       - name: 👷 Checkout
-        uses: actions/checkout@v4 # Upgraded to v4 for speed
+        uses: actions/checkout@v4
 
-      - name: ⚙️ Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'npm' # This built-in cache saves ~20-30s on 'npm ci'
+      - name: 📦 Install deps (Fast)
+        # --no-audit and --preferred-offline skip network checks
+        run: npm install --no-audit --no-fund --preferred-offline
 
-      - name: 📦 Install dependencies
-        # This only installs if the cache is missing
-        run: npm ci
-
-      - name: 🔐 Fetch credentials
+      - name: 🔐 Setup & Run
         env:
           CREDS_USR: ${{ secrets.CREDS_USR }}
           CREDS_PSSWD: ${{ secrets.CREDS_PSSWD }}
-        run: |
-          # Use curl directly to populate .env to avoid extra script steps
-          curl -s -u "$CREDS_USR:$CREDS_PSSWD" https://rijash.com/nlp/creds.json > raw_creds.json
-          
-          STUDENT="${{ github.event.inputs.student_code }}"
-          USERNAME=$(jq -r --arg s "$STUDENT" '.[$s].username' raw_creds.json)
-          PASSWORD=$(jq -r --arg s "$STUDENT" '.[$s].password' raw_creds.json)
-          TWOFA=$(jq -r --arg s "$STUDENT" '.[$s].code' raw_creds.json)
-
-          echo "USERNAME=$USERNAME" > .env
-          echo "PASSWORD=$PASSWORD" >> .env
-          echo "CODE=$TWOFA" >> .env
-          rm raw_creds.json
-
-      - name: 🤖 Run scraper
-        env:
           STUDENT_CODE: ${{ github.event.inputs.student_code }}
-        run: node scrape.js "$STUDENT_CODE"
+        run: |
+          # Fetch creds and run in one shell execution to save overhead
+          curl -s -u "$CREDS_USR:$CREDS_PSSWD" https://rijash.com/nlp/creds.json > raw.json
+          
+          echo "USERNAME=$(jq -r --arg s "$STUDENT_CODE" '.[$s].username' raw.json)" > .env
+          echo "PASSWORD=$(jq -r --arg s "$STUDENT_CODE" '.[$s].password' raw.json)" >> .env
+          echo "CODE=$(jq -r --arg s "$STUDENT_CODE" '.[$s].code' raw.json)" >> .env
+          
+          node scrape.js "$STUDENT_CODE"
 
-      - name: 💾 Commit & push JSON
-        uses: stefanzweifel/git-auto-commit-action@v5 # Upgraded to v5
+      - name: 💾 Commit & Push
+        uses: stefanzweifel/git-auto-commit-action@v5
         with:
-          commit_message: "chore: update posts for ${{ github.event.inputs.student_code }} [skip ci]"
-          file_pattern: "posts/posts-${{ github.event.inputs.student_code }}.json"
-          author_name: github-actions
-          author_email: actions@github.com
-
-      - name: 🚀 Deploy
-        uses: peaceiris/actions-gh-pages@v3
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_branch: gh-pages
-          publish_dir: .
-          keep_files: true
+          commit_message: "update ${{ github.event.inputs.student_code }}"
+          file_pattern: "posts/*.json"
