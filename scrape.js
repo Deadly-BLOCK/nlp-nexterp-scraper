@@ -34,7 +34,7 @@ const { USERNAME, PASSWORD, CODE } = process.env;
       });
     });
 
-    // Login (Fastest possible navigation)
+    console.log('Logging in...');
     await page.goto('https://nlp.nexterp.in/nlp/nlp/login', { waitUntil: 'networkidle2' });
     await page.type('input[name="username"]', USERNAME);
     await page.type('input[name="password"]', PASSWORD);
@@ -45,12 +45,36 @@ const { USERNAME, PASSWORD, CODE } = process.env;
       page.waitForNavigation({ waitUntil: 'networkidle2' })
     ]);
 
+    // 1) Login failure check
+    if (page.url().includes('login')) {
+      const outFile = path.resolve(`posts/posts-${STUDENT_CODE}.json`);
+      fs.writeFileSync(outFile, JSON.stringify({ error: "LOGIN_FAILED", _updatedAt: new Date().toISOString() }, null, 2));
+      throw new Error("Login failed (incorrect credentials).");
+    }
+    console.log('Logged in!');
+
     // Trigger the feed page
     const feedUrl = 'https://nlp.nexterp.in/nlp/nlp/v1/workspace/studentlms?urlgroup=Student%20Workspace#/dashboard/discussion';
     await page.goto(feedUrl, { waitUntil: 'domcontentloaded' });
 
-    // As soon as the CURL command is built from the intercepted request, run it
-    const command = await curlPromise;
+    let command;
+    while (!command) {
+      console.log('Fetching curl...');
+      try {
+        command = await Promise.race([
+          curlPromise,
+          new Promise((_, reject) => setTimeout(() => reject(new Error('TIMEOUT')), 30000))
+        ]);
+        console.log('Fetched curl!');
+      } catch (err) {
+        if (err.message === 'TIMEOUT') {
+          console.log('Timeout (30s) waiting for XHR. Reloading page...');
+          await page.reload({ waitUntil: 'domcontentloaded' });
+        } else {
+          throw err; // Re-throw real errors
+        }
+      }
+    }
     console.log('🚀 Executing CURL...');
     
     const response = execSync(command, { maxBuffer: 1024 * 1024 * 50 });
