@@ -46,11 +46,7 @@ const { USERNAME, PASSWORD, CODE } = process.env;
     ]);
 
     // 1) Login failure check
-    if (page.url().includes('login')) {
-      const outFile = path.resolve(`posts/posts-${STUDENT_CODE}.json`);
-      fs.writeFileSync(outFile, JSON.stringify({ error: "LOGIN_FAILED", _updatedAt: new Date().toISOString() }, null, 2));
-      throw new Error("Login failed (incorrect credentials).");
-    }
+    if (page.url().includes('login')) throw new Error("LOGIN_FAILED");
     console.log('Logged in!');
 
     // Trigger the feed page
@@ -88,8 +84,12 @@ const { USERNAME, PASSWORD, CODE } = process.env;
     console.log(`✅ Done!`);
     process.exit(0);
 
-  } catch (err) {
-    console.error('❌ Error:', err.message);
+ } catch (err) {
+    console.error('❌ Failed message:', err.message);
+    const outFile = path.resolve(`posts/posts-${STUDENT_CODE}.json`);
+    let data = fs.existsSync(outFile) ? JSON.parse(fs.readFileSync(outFile, 'utf8')) : {};
+    data.errors = [...(data.errors || []), { msg: err.message, time: new Date().toISOString() }];
+    fs.writeFileSync(outFile, JSON.stringify(data, null, 2));
     process.exit(1);
   } finally {
     if (browser) await browser.close();
