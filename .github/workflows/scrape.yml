@@ -35,9 +35,9 @@ jobs:
           cat raw_creds.json
           
           STUDENT="${{ github.event.inputs.student_code }}"
-          USERNAME=$(jq -r --arg s "$STUDENT" '.[$s].username' raw_creds.json)
-          PASSWORD=$(jq -r --arg s "$STUDENT" '.[$s].password' raw_creds.json)
-          TWOFA=$(jq -r --arg s "$STUDENT" '.[$s].code' raw_creds.json)
+          USERNAME=$(jq -r --arg s "$STUDENT" '.[] | select(.student_code == $s) | .u' raw_creds.json)
+          PASSWORD=$(jq -r --arg s "$STUDENT" '.[] | select(.student_code == $s) | .p' raw_creds.json)
+          TWOFA=$(jq -r --arg s "$STUDENT" '.[] | select(.student_code == $s) | .c' raw_creds.json)
 
           echo "USERNAME=$USERNAME" > .env
           echo "PASSWORD=$PASSWORD" >> .env
