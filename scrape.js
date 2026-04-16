@@ -18,7 +18,6 @@ const { USERNAME, PASSWORD, CODE } = process.env;
     const page = await browser.newPage();
     await page.setRequestInterception(true);
 
-    // Listen for the specific request and execute CURL immediately
     const curlPromise = new Promise((resolve) => {
       page.on('request', (request) => {
         const url = request.url();
@@ -45,7 +44,6 @@ const { USERNAME, PASSWORD, CODE } = process.env;
       page.waitForNavigation({ waitUntil: 'networkidle2' })
     ]);
 
-    // 1) Login failure check
     if (page.url().includes('login')) {
       const outFile = path.resolve(`posts/posts-${STUDENT_CODE}.json`);
       fs.writeFileSync(outFile, JSON.stringify({ error: "LOGIN_FAILED", _updatedAt: new Date().toISOString() }, null, 2));
