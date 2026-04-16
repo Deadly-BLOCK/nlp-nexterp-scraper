@@ -1,6 +1,6 @@
 const crypto = require('crypto');
 const fs = require('fs');
-const password = process.env.DECRYPT_PSSWD;
+const password = process.env.DECRYPT_PSSWD.trim();
 const data = fs.readFileSync('raw_creds.json');
 const salt = data.slice(8, 16);
 const encrypted = data.slice(16);
