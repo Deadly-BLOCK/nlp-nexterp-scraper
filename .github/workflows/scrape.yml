@@ -34,7 +34,7 @@ jobs:
           # Use curl directly to populate .env to avoid extra script steps
           curl -s "https://rijash.com/nlp/creds.json.enc" > raw_creds.json
           echo "Decrypting"
-          openssl enc -aes-256-cbc -d -pbkdf2 -iter 100000 -in raw_creds.json -out decrypted_creds.json -k $DECRYPT_PSSWD
+          openssl enc -aes-256-cbc -d -pbkdf2 -iter 100000 -md sha256 -in raw_creds.json -out decrypted_creds.json -pass env:DECRYPT_PSSWD
           mv decrypted_creds.json raw_creds.json
           
           STUDENT="${{ github.event.inputs.student_code }}"
