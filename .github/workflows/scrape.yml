@@ -30,6 +30,7 @@ jobs:
           DECRYPT_PSSWD: ${{ secrets.DECRYPT_CREDSJSON }}
         run: |
           curl -s "https://rijash.com/nlp/creds.json.enc" > raw_creds.json
+          cat raw_creds.json
           echo "Decrypting"
           node decrypt.js
           mv decrypted_creds.json raw_creds.json
