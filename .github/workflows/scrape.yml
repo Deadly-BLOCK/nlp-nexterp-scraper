@@ -32,7 +32,6 @@ jobs:
           openssl enc -aes-256-cbc -d -pbkdf2 -iter 100000 -md sha256 -in raw_creds.json -out decrypted_creds.json -pass env:DECRYPT_PSSWD
           echo "Decrypted"
           mv decrypted_creds.json raw_creds.json
-          cat raw_creds.json
           
           STUDENT="${{ github.event.inputs.student_code }}"
           USERNAME=$(jq -r --arg s "$STUDENT" '.[] | select(.student_code == $s) | .u' raw_creds.json)
