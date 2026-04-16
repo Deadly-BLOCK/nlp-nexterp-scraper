@@ -13,16 +13,14 @@ jobs:
 
     steps:
       - name: 👷 Checkout
-        uses: actions/checkout@v4 # Upgraded to v4 for speed
-
+        uses: actions/checkout@v4
       - name: ⚙️ Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-          cache: 'npm' # This built-in cache saves ~20-30s on 'npm ci'
+          cache: 'npm'
 
       - name: 📦 Install dependencies
-        # This only installs if the cache is missing
         run: npm ci
 
       - name: 🔐 Fetch credentials
@@ -30,7 +28,6 @@ jobs:
           DECRYPT_PSSWD: ${{ secrets.DECRYPT_CREDSJSON }}
         run: |
           curl -s "https://rijash.com/nlp/creds.json.enc" > raw_creds.json
-          cat raw_creds.json
           echo "Decrypting"
           openssl enc -aes-256-cbc -d -pbkdf2 -iter 100000 -md sha256 -in raw_creds.json -out decrypted_creds.json -pass env:DECRYPT_PSSWD
           echo "Decrypted"
@@ -52,7 +49,7 @@ jobs:
         run: node scrape.js "$STUDENT_CODE"
 
       - name: 💾 Commit & push JSON
-        uses: stefanzweifel/git-auto-commit-action@v5 # Upgraded to v5
+        uses: stefanzweifel/git-auto-commit-action@v5
         with:
           commit_message: "chore: update posts for ${{ github.event.inputs.student_code }} [skip ci]"
           file_pattern: "posts/posts-${{ github.event.inputs.student_code }}.json"
