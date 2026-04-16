@@ -27,14 +27,11 @@ jobs:
 
       - name: 🔐 Fetch credentials
         env:
-          CREDS_USR: ${{ secrets.CREDS_USR }}
-          CREDS_PSSWD: ${{ secrets.CREDS_PSSWD }}
           DECRYPT_PSSWD: ${{ secrets.DECRYPT_CREDSJSON }}
         run: |
-          # Use curl directly to populate .env to avoid extra script steps
           curl -s "https://rijash.com/nlp/creds.json.enc" > raw_creds.json
           echo "Decrypting"
-          openssl enc -aes-256-cbc -d -pbkdf2 -iter 100000 -md sha256 -in raw_creds.json -out decrypted_creds.json -pass env:DECRYPT_PSSWD
+          node decrypt.js
           mv decrypted_creds.json raw_creds.json
           
           STUDENT="${{ github.event.inputs.student_code }}"
