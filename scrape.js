@@ -51,7 +51,6 @@ const { USERNAME, PASSWORD, CODE } = process.env;
     }
     console.log('Logged in!');
 
-    // Trigger the feed page
     const feedUrl = 'https://nlp.nexterp.in/nlp/nlp/v1/workspace/studentlms?urlgroup=Student%20Workspace#/dashboard/discussion';
     await page.goto(feedUrl, { waitUntil: 'domcontentloaded' });
 
@@ -69,7 +68,7 @@ const { USERNAME, PASSWORD, CODE } = process.env;
           console.log('Timeout (30s) waiting for XHR. Reloading page...');
           await page.reload({ waitUntil: 'domcontentloaded' });
         } else {
-          throw err; // Re-throw real errors
+          throw err;
         }
       }
     }
