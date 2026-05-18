@@ -10,9 +10,17 @@ concurrency:
   group: scrape-publish
   cancel-in-progress: false
 
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - name: 👷 Checkout
         uses: actions/checkout@v4
@@ -22,18 +30,18 @@ jobs:
           DECRYPT_PSSWD: ${{ secrets.DECRYPT_CREDSJSON }}
         run: |
           curl -s "https://rijash.com/nlp/creds.json.enc" > raw_creds.json
-          echo "Decrypting"
-          openssl enc -aes-256-cbc -d -pbkdf2 -iter 100000 -md sha256 -in raw_creds.json -out decrypted_creds.json -pass env:DECRYPT_PSSWD
-          echo "Decrypted"
+          openssl enc -aes-256-cbc -d -pbkdf2 -iter 100000 -md sha256 \
+            -in raw_creds.json -out decrypted_creds.json -pass env:DECRYPT_PSSWD
           mv decrypted_creds.json raw_creds.json
-
           STUDENT="${{ github.event.inputs.student_code }}"
           USERNAME=$(jq -r --arg s "$STUDENT" '.[] | select(.student_code == $s) | .u' raw_creds.json)
           PASSWORD=$(jq -r --arg s "$STUDENT" '.[] | select(.student_code == $s) | .p' raw_creds.json)
           TWOFA=$(jq -r --arg s "$STUDENT" '.[] | select(.student_code == $s) | .c' raw_creds.json)
-          echo "USERNAME=$USERNAME" > .env
-          echo "PASSWORD=$PASSWORD" >> .env
-          echo "CODE=$TWOFA" >> .env
+          {
+            echo "USERNAME=$USERNAME"
+            echo "PASSWORD=$PASSWORD"
+            echo "CODE=$TWOFA"
+          } > .env
           rm raw_creds.json
 
       - name: 🤖 Run scraper
@@ -49,10 +57,14 @@ jobs:
           commit_user_name: github-actions
           commit_user_email: actions@github.com
 
-      - name: 🚀 Deploy
-        uses: peaceiris/actions-gh-pages@v3
+      - name: ⚙️ Configure Pages
+        uses: actions/configure-pages@v5
+
+      - name: 📦 Upload site artifact
+        uses: actions/upload-pages-artifact@v3
         with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_branch: gh-pages
-          publish_dir: .
-          keep_files: true
+          path: .
+
+      - name: 🚀 Deploy to Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
