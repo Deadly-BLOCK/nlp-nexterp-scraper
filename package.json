@@ -18,8 +18,5 @@
     "url": "https://github.com/Deadly-BLOCK/nlp-nexterp-scraper/issues"
   },
   "homepage": "https://github.com/Deadly-BLOCK/nlp-nexterp-scraper#readme",
-  "dependencies": {
-    "dotenv": "^17.2.0",
-    "puppeteer": "^24.14.0"
-  }
+  
 }
