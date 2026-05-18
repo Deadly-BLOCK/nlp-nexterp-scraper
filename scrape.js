@@ -120,7 +120,7 @@ function buildFeedUrl(claims) {
   try {
     const { token, jar } = await login();
     const claims = decodeJwt(token);
-    log(`Auth as ${claims.ufn || claims.uln} (uid=${claims.uid})`);
+    log(`Logged in`);
 
     const url = buildFeedUrl(claims);
     log('GET feed…');
