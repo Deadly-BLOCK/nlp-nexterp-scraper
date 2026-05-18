@@ -1,28 +1,38 @@
-require('dotenv').config();
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
+
+try {
+  for (const line of fs.readFileSync('.env', 'utf8').split('\n')) {
+    const m = line.match(/^\s*([A-Z_][A-Z0-9_]*)\s*=\s*(.*?)\s*$/);
+    if (m) process.env[m[1]] ??= m[2].replace(/^["'](.*)["']$/, '$1');
+  }
+} catch { /* no .env file — fine if vars come from CI env */ }
+
 const STUDENT_CODE = process.argv[2];
 const { USERNAME, PASSWORD, CODE } = process.env;
 const HASH_MODE = (process.env.HASH_MODE || 'md5').toLowerCase();
-const UA =
-  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36';
+const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
 const BASE = 'https://nlp.nexterp.in';
 const LOGIN_URL = `${BASE}/nlp/nlp/login`;
 const FEED_BASE = `${BASE}/NextPostV2/nextpost/data/discussionBoard/posts/get`;
 const WORKSPACE_REFERER = `${BASE}/nlp/nlp/v1/workspace/studentlms?urlgroup=Student%20Workspace`;
 const CATEGORY_TYPES = ['Activity', 'Announcement', 'Assessment', 'Homework', 'LiveLecture', 'Resource'];
+
 function die(msg) { console.error(`❌ ${msg}`); process.exit(1); }
 if (!STUDENT_CODE) die('Usage: node scrape.js <STUDENT_CODE>');
 if (!/^[a-zA-Z0-9_-]{1,32}$/.test(STUDENT_CODE))
   die('STUDENT_CODE must match [a-zA-Z0-9_-]{1,32}');
 if (!USERNAME || !PASSWORD || !CODE)
   die('Missing USERNAME / PASSWORD / CODE in .env');
+
 const POSTS_DIR = path.resolve('posts');
 const OUT_FILE = path.join(POSTS_DIR, `posts-${STUDENT_CODE}.json`);
 const ERR_FILE = path.join(POSTS_DIR, `posts-${STUDENT_CODE}.error.json`);
 fs.mkdirSync(POSTS_DIR, { recursive: true });
+
 const log = (m) => console.log(`[${new Date().toISOString()}] ${m}`);
+
 class Jar {
   constructor() { this.cookies = new Map(); }
   ingest(headers) {
@@ -83,6 +93,7 @@ async function login() {
   const location = lr.headers.get('location') || '';
   if (lr.status >= 400) throw new Error(`LOGIN_HTTP_${lr.status}`);
   if (lr.status === 200 || location.includes('/login')) throw new Error('LOGIN_FAILED');
+
   let next = location;
   for (let hop = 0; hop < 5 && next && !jar.get('authToken'); hop++) {
     const abs = new URL(next, BASE).toString();
@@ -122,9 +133,8 @@ function buildFeedUrl(claims) {
     const claims = decodeJwt(token);
     log(`Logged in`);
 
-    const url = buildFeedUrl(claims);
     log('GET feed…');
-    const fr = await fetch(url, {
+    const fr = await fetch(buildFeedUrl(claims), {
       headers: {
         'user-agent': UA,
         accept: 'application/json',
