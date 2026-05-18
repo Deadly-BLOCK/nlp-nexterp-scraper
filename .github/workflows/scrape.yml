@@ -1,5 +1,4 @@
 name: Scrape & Publish per-student
-
 on:
   workflow_dispatch:
     inputs:
@@ -7,21 +6,16 @@ on:
         description: 'Unique login code for the student'
         required: true
 
+concurrency:
+  group: scrape-publish
+  cancel-in-progress: false
+
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
-
     steps:
       - name: 👷 Checkout
         uses: actions/checkout@v4
-      - name: ⚙️ Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'npm'
-
-      - name: 📦 Install dependencies
-        run: npm ci
 
       - name: 🔐 Fetch credentials
         env:
@@ -32,12 +26,11 @@ jobs:
           openssl enc -aes-256-cbc -d -pbkdf2 -iter 100000 -md sha256 -in raw_creds.json -out decrypted_creds.json -pass env:DECRYPT_PSSWD
           echo "Decrypted"
           mv decrypted_creds.json raw_creds.json
-          
+
           STUDENT="${{ github.event.inputs.student_code }}"
           USERNAME=$(jq -r --arg s "$STUDENT" '.[] | select(.student_code == $s) | .u' raw_creds.json)
           PASSWORD=$(jq -r --arg s "$STUDENT" '.[] | select(.student_code == $s) | .p' raw_creds.json)
           TWOFA=$(jq -r --arg s "$STUDENT" '.[] | select(.student_code == $s) | .c' raw_creds.json)
-
           echo "USERNAME=$USERNAME" > .env
           echo "PASSWORD=$PASSWORD" >> .env
           echo "CODE=$TWOFA" >> .env
@@ -53,8 +46,8 @@ jobs:
         with:
           commit_message: "chore: update posts for ${{ github.event.inputs.student_code }} [skip ci]"
           file_pattern: "posts/posts-${{ github.event.inputs.student_code }}.json"
-          author_name: github-actions
-          author_email: actions@github.com
+          commit_user_name: github-actions
+          commit_user_email: actions@github.com
 
       - name: 🚀 Deploy
         uses: peaceiris/actions-gh-pages@v3
