@@ -7,7 +7,7 @@ try {
     const m = line.match(/^\s*([A-Z_][A-Z0-9_]*)\s*=\s*(.*?)\s*$/);
     if (m) process.env[m[1]] ??= m[2].replace(/^["'](.*)["']$/, '$1');
   }
-} catch { /* no .env file — fine if vars come from CI env */ }
+} catch { }
 
 const STUDENT_CODE = process.argv[2];
 const { USERNAME, PASSWORD, CODE } = process.env;
