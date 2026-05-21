@@ -29,7 +29,7 @@ jobs:
         env:
           DECRYPT_PSSWD: ${{ secrets.DECRYPT_CREDSJSON }}
         run: |
-          curl -fsSL "https://rijash.com/nlp/creds.json.enc" > raw_creds.json
+          curl -4 --http1.1 --connect-timeout 10 --max-time 30 -fsSL "https://rijash.com/nlp/creds.json.enc" > raw_creds.json
           openssl enc -aes-256-cbc -d -pbkdf2 -iter 100000 -md sha256 \
             -in raw_creds.json -out decrypted_creds.json -pass env:DECRYPT_PSSWD
           mv decrypted_creds.json raw_creds.json
